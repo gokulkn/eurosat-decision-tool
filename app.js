@@ -1,5 +1,5 @@
 /**
- * EuroSAT Decision Demo — app.js
+ * EuroSAT Decision Demo -- app.js
  *
  * Runs the committed ResNet-18 model (exported to ONNX) in the browser via
  * onnxruntime-web, loaded entirely from this local folder. No network calls at runtime.
@@ -29,55 +29,22 @@ const CLASS_NAMES = [
 const FROZEN_THRESHOLD = 0.50;
 const MODEL_PATH = "model.onnx";
 
-const statusEl = document.getElementById("status");
-const loadStatusEl = document.getElementById("loadStatus");
-const resultEl = document.getElementById("result");
-const resultLoadingEl = document.getElementById("resultLoading");
-const resizeNoticeEl = document.getElementById("resizeNotice");
-const previewImg = document.getElementById("previewImg");
-const resultImg = document.getElementById("resultImg");
-const topClassEl = document.getElementById("topClass");
-const topConfEl = document.getElementById("topConf");
-const decisionEl = document.getElementById("decision");
-const top3El = document.getElementById("top3");
-const examplesEl = document.getElementById("examples");
-const fileInput = document.getElementById("file");
-
 let session = null;
+let modelResolve = null;
+const modelReady = new Promise((resolve) => { modelResolve = resolve; });
 
-// ----- model loading -----
-async function loadModel() {
-  try {
-    loadStatusEl.textContent = "Loading ONNX runtime & model&hellip;";
-    // onnxruntime-web is loaded from vendor/ort.wasm.min.js (script tag in index.html)
-    session = await ort.InferenceSession.create(MODEL_PATH);
-    loadStatusEl.textContent = "Model loaded. Ready.";
-    loadStatusEl.className = "status ok";
-    statusEl.textContent = "";
-  } catch (e) {
-    loadStatusEl.textContent = "Failed to load model.";
-    loadStatusEl.className = "status err";
-    console.error(e);
-    statusEl.textContent = "Error: " + (e && e.message ? e.message : String(e));
-    statusEl.className = "status err";
-  }
+// ----- element helpers -----
+function el(id) {
+  return document.getElementById(id);
 }
-
-loadModel();
 
 // ----- helpers -----
 function setStatus(msg, kind) {
-  statusEl.textContent = msg;
-  statusEl.className = "status " + (kind || "");
-}
-
-function showResult() {
-  resultEl.style.display = "block";
-  resultLoadingEl.style.display = "none";
-}
-
-function hideResult() {
-  resultEl.style.display = "none";
+  const s = el("status");
+  if (s) {
+    s.textContent = msg;
+    s.className = "status " + (kind || "");
+  }
 }
 
 function softmax(logits) {
@@ -98,8 +65,6 @@ function formatPct(p) {
 }
 
 // ----- image preprocessing -----
-// Load an image file (File or URL) into an Image, then draw to a 64x64 canvas,
-// returning an Float32Array tensor [1,3,64,64] normalized with ImageNet mean/std.
 function loadAndPreprocess(fileOrUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -112,13 +77,12 @@ function loadAndPreprocess(fileOrUrl) {
         canvas.height = 64;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, 64, 64);
-        if (resized) {
-          resizeNoticeEl.style.display = "block";
-        } else {
-          resizeNoticeEl.style.display = "none";
+        const rn = el("resizeNotice");
+        if (rn) {
+          if (resized) { rn.style.display = "block"; } else { rn.style.display = "none"; }
         }
         const imageData = ctx.getImageData(0, 0, 64, 64);
-        const data = imageData.data; // RGBA uint8 clamped
+        const data = imageData.data;
         const tensor = new Float32Array(1 * 3 * 64 * 64);
         const mean = [0.485, 0.456, 0.406];
         const std = [0.229, 0.224, 0.225];
@@ -129,9 +93,9 @@ function loadAndPreprocess(fileOrUrl) {
             const r = data[off] / 255;
             const g = data[off + 1] / 255;
             const b = data[off + 2] / 255;
-            tensor[idx++] = (r - mean[0]) / std[0];   // channel 0
-            tensor[idx++] = (g - mean[1]) / std[1];   // channel 1
-            tensor[idx++] = (b - mean[2]) / std[2];   // channel 2
+            tensor[idx++] = (r - mean[0]) / std[0];
+            tensor[idx++] = (g - mean[1]) / std[1];
+            tensor[idx++] = (b - mean[2]) / std[2];
           }
         }
         resolve(tensor);
@@ -153,125 +117,209 @@ async function runInference(tensor) {
   if (!session) throw new Error("Model not loaded yet");
   const input = new ort.Tensor("float32", tensor, [1, 3, 64, 64]);
   const outputs = await session.run({ input: input });
-  const logits = outputs.logits.data; // Float32Array length 10
+  const logits = outputs.logits.data;
   return Array.from(logits);
 }
 
-// ----- UI update -----
+// ----- UI helpers for viewer -----
+function decisionClass(answered) {
+  return answered ? "answered" : "abstained";
+}
+function decisionText(pred, conf, answered) {
+  if (answered) return "Answered &mdash; " + pred;
+  return "Abstained (route to review) &mdash; max " + formatPct(conf) + " < " + FROZEN_THRESHOLD;
+}
+
+// ----- build viewer grid -----
+async function buildViewer(manifest) {
+  await modelReady;
+  const viewerStatusEl = el("viewerStatus");
+  const viewerGridEl = el("viewerGrid");
+  const summaryEl = el("summary");
+  const viewerNoteEl = el("viewerNote");
+
+  if (viewerStatusEl) viewerStatusEl.textContent = "Loading examples &hellip;";
+  if (viewerGridEl) viewerGridEl.innerHTML = "";
+  if (summaryEl) summaryEl.textContent = "";
+  if (viewerNoteEl) viewerNoteEl.textContent = "";
+
+  let matches = 0, mismatches = 0, answered = 0, abstained = 0;
+  let total = manifest.examples.length;
+
+  for (const ex of manifest.examples) {
+    const card = document.createElement("div");
+    card.className = "result-card";
+    card.innerHTML = `
+      <img class="thumb" src="examples/${ex.example_file}" alt="${ex.class}">
+      <div class="true-label">True: ${ex.class}</div>
+      <div class="pred-label">Predicted: <span id="pred-${ex.example_file}">--</span></div>
+      <div class="prob">Confidence: <span id="conf-${ex.example_file}">--</span></div>
+      <div class="decision ${decisionClass(false)}" id="decision-${ex.example_file}">--</div>
+      <div class="badge" id="badge-${ex.example_file}">--</div>
+    `;
+    if (viewerGridEl) viewerGridEl.appendChild(card);
+
+    try {
+      const tensor = await loadAndPreprocess("examples/" + ex.example_file);
+      const logits = await runInference(tensor);
+      const probs = softmax(logits);
+      const best = top3(probs)[0];
+      const pred = CLASS_NAMES[best.i];
+      const conf = best.p;
+      const isAnswered = conf >= FROZEN_THRESHOLD;
+      const match = pred === ex.class;
+
+      if (isAnswered) answered++; else abstained++;
+      if (match) matches++; else mismatches++;
+
+      const predSpan = el("pred-" + ex.example_file);
+      const confSpan = el("conf-" + ex.example_file);
+      if (predSpan) predSpan.textContent = pred;
+      if (confSpan) confSpan.textContent = formatPct(conf);
+      const decEl = el("decision-" + ex.example_file);
+      if (decEl) {
+        decEl.textContent = decisionText(pred, conf, isAnswered);
+        decEl.className = "decision " + decisionClass(isAnswered);
+      }
+      const badgeEl = card.querySelector("#badge-" + ex.example_file);
+      if (badgeEl) {
+        badgeEl.textContent = match ? "MATCH" : "MISMATCH";
+        badgeEl.className = "badge " + (match ? "match" : "mismatch");
+      }
+      if (match) card.classList.add("match");
+      else card.classList.add("mismatch");
+      if (!isAnswered) card.classList.add("abstained");
+    } catch (e) {
+      console.error("Error on " + ex.example_file, e);
+      const predSpan = card.querySelector(".pred-" + ex.example_file);
+      if (predSpan) predSpan.textContent = "error";
+      const decEl = card.querySelector("#decision-" + ex.example_file);
+      if (decEl) decEl.textContent = "error";
+      const badgeEl = card.querySelector("#badge-" + ex.example_file);
+      if (badgeEl) badgeEl.textContent = "error";
+    }
+
+    if (viewerStatusEl) viewerStatusEl.textContent = "Loaded examples &hellip;";
+  }
+
+  if (viewerStatusEl) viewerStatusEl.textContent = "Loaded " + total + " examples.";
+  if (summaryEl) {
+    summaryEl.textContent =
+      "Summary on these " + total + " examples only (not a test-set accuracy): " +
+      matches + " match, " + mismatches + " mismatch, " +
+      answered + " answered, " + abstained + " abstained (threshold " + FROZEN_THRESHOLD + ").";
+  }
+  let note = "";
+  if (mismatches === 0) note += " No mismatches in this subset. ";
+  if (abstained === 0) note += " No abstentions in this subset. ";
+  if (viewerNoteEl) viewerNoteEl.textContent = note.trim();
+}
+
+// ----- single upload -----
 function displayPrediction(logits, srcLabel) {
   const probs = softmax(logits);
-  const top = top3(probs);
+  const top = top3(probs)[0];
   const best = top[0];
 
-  topClassEl.textContent = CLASS_NAMES[best.i];
-  topConfEl.textContent = formatPct(best.p) + " confidence";
+  const tc = el("topClass");
+  const tfc = el("topConf");
+  if (tc) tc.textContent = CLASS_NAMES[best.i];
+  if (tfc) tfc.textContent = formatPct(best.p) + " confidence";
   const answered = best.p >= FROZEN_THRESHOLD;
-  decisionEl.textContent = answered
-    ? `Answered — ${CLASS_NAMES[best.i]}`
-    : `Abstained (route to review) — max confidence ${formatPct(best.p)} < ${FROZEN_THRESHOLD}`;
-  decisionEl.className = "decision " + (answered ? "answered" : "abstained");
+  const sd = el("singleDecision");
+  if (sd) {
+    sd.textContent = answered
+      ? "Answered &mdash; " + CLASS_NAMES[best.i]
+      : "Abstained (route to review) &mdash; max " + formatPct(best.p) + " < " + FROZEN_THRESHOLD;
+    sd.className = "decision-big " + (answered ? "answered-big" : "abstained-big");
+  }
+  const ri = el("resultImg");
+  if (ri) { ri.src = el("previewImg").src; ri.alt = srcLabel; }
 
-  resultImg.src = previewImg.src;
-  resultImg.alt = srcLabel;
-
-  top3El.innerHTML = "";
-  for (const t of top) {
-    const row = document.createElement("div");
-    row.className = "prob-row";
-    row.innerHTML = `<span>${CLASS_NAMES[t.i]}</span><span>${formatPct(t.p)}</span>`;
-    top3El.appendChild(row);
-    const barWrap = document.createElement("div");
-    barWrap.className = "prob-bar";
-    const fill = document.createElement("div");
-    fill.className = "prob-fill";
-    fill.style.width = (t.p * 100) + "%";
-    barWrap.appendChild(fill);
-    top3El.appendChild(barWrap);
+  const top3El = el("top3");
+  if (top3El) {
+    top3El.innerHTML = "";
+    for (const t of top) {
+      const row = document.createElement("div");
+      row.className = "prob-row";
+      row.innerHTML = "<span>" + CLASS_NAMES[t.i] + "</span><span>" + formatPct(t.p) + "</span>";
+      top3El.appendChild(row);
+      const barWrap = document.createElement("div");
+      barWrap.className = "prob-bar";
+      const fill = document.createElement("div");
+      fill.className = "prob-fill";
+      fill.style.width = (t.p * 100) + "%";
+      barWrap.appendChild(fill);
+      top3El.appendChild(barWrap);
+    }
   }
 
-  setStatus(
-    `Prediction complete for ${srcLabel}. ${answered ? "Answered" : "Abstained"}.`,
-    answered ? "ok" : ""
-  );
-  showResult();
+  const sr = el("singleResult");
+  if (sr) sr.style.display = "block";
+  setStatus("Prediction complete for " + srcLabel + ". " + (answered ? "Answered" : "Abstained") + ".", answered ? "ok" : "");
 }
 
-// ----- sample selection -----
-function populateExamples(manifest) {
-  examplesEl.innerHTML = "";
-  for (const ex of manifest.examples) {
-    const thumb = document.createElement("img");
-    thumb.className = "thumb";
-    thumb.src = "examples/" + ex.example_file;
-    thumb.alt = ex.class + " (idx " + ex.test_index + ")";
-    thumb.title = `${ex.class} — test index ${ex.test_index} — source: ${ex.source_file}`;
-    thumb.onclick = () => {
-      document.querySelectorAll(".thumb").forEach((t) => t.classList.remove("selected"));
-      thumb.classList.add("selected");
-      previewImg.src = thumb.src;
-      previewImg.alt = thumb.alt;
-      resizeNoticeEl.style.display = "none";
-      hideResult();
-      setStatus(`Selected ${ex.class} (test index ${ex.test_index}). Click Predict if needed.`);
-      autoPredictFromSrc(thumb.src, thumb.title);
-    };
-    examplesEl.appendChild(thumb);
-  }
-}
-
-// Auto-predict when a sample is clicked
-async function autoPredictFromSrc(src, title) {
-  if (!session) return;
+// ----- model loading -----
+async function loadModel() {
+  const ls = el("loadStatus");
+  const se = el("status");
   try {
-    resultLoadingEl.style.display = "flex";
-    resultEl.style.display = "none";
-    const tensor = await loadAndPreprocess(src);
-    const logits = await runInference(tensor);
-    displayPrediction(logits, title);
+    if (ls) { ls.textContent = "Loading ONNX runtime & model&hellip;"; }
+    if (typeof ort === "undefined") {
+      throw new Error("ort (onnxruntime-web) is not defined. Check vendor/ort.wasm.min.js loaded.");
+    }
+    session = await ort.InferenceSession.create(MODEL_PATH);
+    if (ls) { ls.textContent = "Model loaded. Ready."; ls.className = "status ok"; }
+    if (se) { se.textContent = ""; }
   } catch (e) {
+    if (ls) { ls.textContent = "Failed to load model."; ls.className = "status err"; }
     console.error(e);
-    setStatus("Error running inference: " + (e.message || String(e)), "err");
-    resultLoadingEl.style.display = "none";
+    if (se) {
+      se.textContent = "Error: " + (e && e.message ? e.message : String(e));
+      se.className = "status err";
+    }
+  } finally {
+    if (modelResolve) modelResolve();
   }
 }
 
-// ----- file upload -----
-fileInput.addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  previewImg.src = URL.createObjectURL(file);
-  previewImg.alt = file.name;
-  resizeNoticeEl.style.display = "none";
-  hideResult();
-  setStatus(`Uploaded ${file.name}. Running inference&hellip;`);
-  resultLoadingEl.style.display = "flex";
-  try {
-    const tensor = await loadAndPreprocess(file);
-    const logits = await runInference(tensor);
-    displayPrediction(logits, file.name);
-  } catch (err) {
-    console.error(err);
-    setStatus("Error: " + (err.message || String(err)), "err");
-    resultLoadingEl.style.display = "none";
-  }
-});
+loadModel();
 
-// Load examples manifest and pre-select the first one
+// ----- load examples manifest and build viewer -----
 fetch("examples_manifest.json")
   .then((r) => r.json())
   .then((manifest) => {
-    populateExamples(manifest);
-    if (manifest.examples.length > 0) {
-      const first = manifest.examples[0];
-      const firstThumb = examplesEl.children[0];
-      if (firstThumb) {
-        firstThumb.classList.add("selected");
-        previewImg.src = firstThumb.src;
-        previewImg.alt = firstThumb.alt;
-        setStatus(`Loaded example: ${first.class} (test index ${first.test_index}).`);
-      }
-    }
+    buildViewer(manifest);
   })
   .catch((e) => {
     console.warn("Could not load examples manifest:", e);
+    const vs = el("viewerStatus");
+    if (vs) vs.textContent = "Could not load examples manifest.";
   });
+
+// ----- file upload -----
+const fileInput = el("file");
+if (fileInput) {
+  fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const pi = el("previewImg");
+    if (pi) { pi.src = URL.createObjectURL(file); pi.alt = file.name; }
+    const rn = el("resizeNotice");
+    if (rn) rn.style.display = "none";
+    const sr = el("singleResult");
+    if (sr) sr.style.display = "none";
+    setStatus("Uploaded " + file.name + ". Running inference&hellip;");
+    const sl = el("singleLoading");
+    if (sl) sl.style.display = "flex";
+    try {
+      const tensor = await loadAndPreprocess(file);
+      const logits = await runInference(tensor);
+      displayPrediction(logits, file.name);
+    } catch (err) {
+      console.error(err);
+      setStatus("Error: " + (err.message || String(err)), "err");
+      if (sl) sl.style.display = "none";
+    }
+  });
+}

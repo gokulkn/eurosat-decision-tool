@@ -1,5 +1,5 @@
-// Browser verification for eurosat-decision-tool
-// Launches headless Chrome, loads the tool page, runs all 12 examples,
+// Browser verification for eurosat-decision-tool viewer
+// Launches headless Chrome, loads the tool page, checks viewer grid,
 // captures console errors + network requests, reports results.
 
 const CDP = require("chrome-remote-interface");
@@ -8,13 +8,11 @@ const os = require("os");
 
 const PORT = 8765;
 const URL = `http://localhost:${PORT}/`;
-const DEBUG_PORT = 9222;
+const DEBUG_PORT = 9223;
 
 async function main() {
-  // Kill any existing chrome
   try { execSync("taskkill /F /IM chrome.exe /T", { stdio: "ignore" }); } catch (e) {}
 
-  // Launch Chrome headless with remote debugging (detached, non-blocking)
   spawn(
     "C:/Program Files/Google/Chrome/Application/chrome.exe",
     [
@@ -23,7 +21,7 @@ async function main() {
       `--remote-debugging-port=${DEBUG_PORT}`,
       "--no-first-run",
       "--no-default-browser-check",
-      `--user-data-dir=${os.tmpdir()}/chrome_profile_verify`,
+      `--user-data-dir=${os.tmpdir()}/chrome_profile_verify2`,
     ],
     { stdio: "ignore", detached: true }
   ).unref();
@@ -52,47 +50,56 @@ async function main() {
 
   await Page.navigate({ url: URL });
   await Page.loadEventFired();
-  await new Promise((r) => setTimeout(r, 25000)); // allow model load + initial inference
+  await new Promise((r) => setTimeout(r, 30000)); // allow model load + viewer build
 
   const evalRes = await Runtime.evaluate({
     expression: `
-      (async () => {
+      (() => {
+        const cards = document.querySelectorAll('.result-card');
+        const summary = document.getElementById('summary')?.textContent || "";
+        const note = document.getElementById('viewerNote')?.textContent || "";
+        const loadStatus = document.getElementById('loadStatus')?.textContent || "";
         const results = [];
-        const thumbs = document.querySelectorAll('.thumb');
-        for (let i = 0; i < thumbs.length; i++) {
-          const t = thumbs[i];
-          t.click();
-          await new Promise(res => setTimeout(res, 3500));
-          const topClass = document.getElementById('topClass').textContent;
-          const topConf = document.getElementById('topConf').textContent;
-          const decision = document.getElementById('decision').textContent;
-          const status = document.getElementById('status').textContent;
-          results.push({ index: i, alt: t.alt, title: t.title, topClass, topConf, decision, status });
-        }
-        return results;
+        cards.forEach((c) => {
+          const img = c.querySelector('.thumb');
+          const trueLabel = c.querySelector('.true-label')?.textContent || "";
+          const predLabel = c.querySelector('.pred-label')?.textContent || "";
+          const prob = c.querySelector('.prob')?.textContent || "";
+          const decision = c.querySelector('.decision')?.textContent || "";
+          const badge = c.querySelector('.badge')?.textContent || "";
+          results.push({
+            src: img ? img.src : "",
+            alt: img ? img.alt : "",
+            trueLabel, predLabel, prob, decision, badge,
+            isMatch: c.classList.contains('match'),
+            isMismatch: c.classList.contains('mismatch'),
+            isAbstained: c.classList.contains('abstained'),
+          });
+        });
+        return { cards: results, summary, note, loadStatus, cardCount: cards.length };
       })()
     `,
     returnByValue: true,
-    awaitPromise: true,
-    timeout: 300000,
+    timeout: 60000,
   });
 
   const raw = evalRes && evalRes.result;
-  let arr = [];
-  if (raw && raw.value) arr = raw.value;
+  const data = raw && raw.value ? raw.value : {};
 
-  console.log("=== EXAMPLE RESULTS ===");
-  let answered = 0, abstained = 0;
-  for (const r of arr) {
-    console.log(`#${r.index} [${r.alt}] topClass=${r.topClass} topConf=${r.topConf}`);
-    console.log(`   title: ${r.title}`);
-    console.log(`   decision: ${r.decision}`);
-    console.log(`   status: ${r.status}`);
-    if (r.decision && r.decision.startsWith("Answered")) answered++;
-    else if (r.decision && r.decision.startsWith("Abstained")) abstained++;
+  console.log("=== VIEWER VERIFICATION ===");
+  console.log("loadStatus:", data.loadStatus);
+  console.log("cardCount:", data.cardCount);
+  console.log("summary:", data.summary);
+  console.log("note:", data.note);
+  console.log("=== CARDS ===");
+  let matches = 0, mismatches = 0, answered = 0, abstained = 0;
+  for (const c of (data.cards || [])) {
+    console.log(`  [${c.alt}] true=${c.trueLabel} pred=${c.predLabel} ${c.prob} decision=${c.decision} badge=${c.badge} match=${c.isMatch} abstained=${c.isAbstained}`);
+    if (c.isMatch) matches++; else mismatches++;
+    if (c.decision && c.decision.startsWith("Answered")) answered++;
+    else if (c.decision && c.decision.startsWith("Abstained")) abstained++;
   }
-  console.log(`Total examples run: ${arr.length}`);
-  console.log(`Answered: ${answered}, Abstained: ${abstained}`);
+  console.log(`Computed: matches=${matches} mismatches=${mismatches} answered=${answered} abstained=${abstained}`);
 
   const labelsCheck = await Runtime.evaluate({
     expression: `
@@ -108,6 +115,9 @@ async function main() {
           hasNotField: t.includes("not field imagery"),
           hasSeed42: t.includes("seed 42"),
           hasNoCI: t.includes("no confidence interval"),
+          hasScopeNote: t.includes("Scope note"),
+          hasSummaryNotAccuracy: t.includes("not a test-set accuracy"),
+          hasConfusionMatrixNote: t.includes("not available as a static PNG"),
         };
       })()
     `,
@@ -130,13 +140,14 @@ async function main() {
   console.log(`Non-localhost requests: ${nonLocalhost.length}`);
   for (const n of nonLocalhost) console.log("  NON-LOCALHOST:", n.url);
   console.log("Sample requests:");
-  for (const n of networkRequests.slice(0, 15)) console.log("  ", n.type, n.url);
+  for (const n of networkRequests.slice(0, 20)) console.log("  ", n.type, n.url);
 
   await client.close();
   try { execSync("taskkill /F /IM chrome.exe /T", { stdio: "ignore" }); } catch (e) {}
   console.log("=== DONE ===");
 }
 
+const { execSync } = require("child_process");
 main().catch((e) => {
   console.error("VERIFICATION FAILED:", e);
   try { execSync("taskkill /F /IM chrome.exe /T", { stdio: "ignore" }); } catch (_) {}

@@ -15,6 +15,22 @@ and the confidence. Everything runs locally — no network calls at runtime.
   - **abstained (route to review)** if max probability < 0.50
 - Displays the committed test-set figures with their labels and denominators.
 
+## Labelled results viewer
+
+The page shows a results grid of all 12 example patches. Each card displays:
+- the thumbnail,
+- the **true label** (from the source folder in `eurosat-decision/data/eurosat/2750/`),
+- the **predicted label** (from the committed ONNX model),
+- the **top probability** (softmax confidence),
+- the **decision** (answered if ≥ 0.50, otherwise "abstained (route to review)"),
+- a **MATCH / MISMATCH** badge comparing predicted vs true label.
+
+A summary line reports the count of matches, mismatches, answered, and abstained **on these 12 examples only**. This is a demonstration subset — **not a test-set accuracy measure** and not a confidence interval.
+
+## Provenance of the 12 examples
+
+The 12 example patches (two per class across AnnualCrop, Forest, HerbaceousVegetation, Highway, Industrial, Pasture) are copied from the committed EuroSAT test split. Each source file exists in `eurosat-decision/data/eurosat/2750/<class>/` and each `test_index` appears in `eurosat-decision/splits/test.csv`. **All 12 examples are in the test split; none are excluded or "not test split."**
+
 ## How to run locally
 
 From the `eurosat-decision-tool` folder:
@@ -67,6 +83,7 @@ accuracy.
 - 64×64 Sentinel-2 patches at 10 m resolution — **not field imagery**.
 - Single run with one seed (42); **no confidence interval computed**.
 - Split is the project's own fixed stratified 70/15/15 split, not a published benchmark split.
+- The viewer summary line (matches/mismatches/answered/abstained) is computed on the 12-example demonstration subset only and is **not a test-set accuracy**.
 - This demo is not claimed to be accurate on imagery outside EuroSAT.
 
 ## Source
