@@ -141,30 +141,26 @@ function decisionText(pred, conf, answered) {
 async function buildViewer(manifest) {
   await modelReady;
   const viewerStatusEl = el("viewerStatus");
-  const viewerGridEl = el("viewerGrid");
-  const summaryEl = el("summary");
-  const viewerNoteEl = el("viewerNote");
+  const examplesEl = el("examples");
 
   if (viewerStatusEl) viewerStatusEl.textContent = "Loading examples &hellip;";
-  if (viewerGridEl) viewerGridEl.innerHTML = "";
-  if (summaryEl) summaryEl.textContent = "";
-  if (viewerNoteEl) viewerNoteEl.textContent = "";
+  if (examplesEl) examplesEl.innerHTML = "";
 
   let matches = 0, mismatches = 0, answered = 0, abstained = 0;
   let total = manifest.examples.length;
 
   for (const ex of manifest.examples) {
     const card = document.createElement("div");
-    card.className = "result-card";
+    card.className = "example-card";
     card.innerHTML = `
-      <img class="thumb" src="examples/${ex.example_file}" alt="${ex.class}">
-      <div class="true-label">True: ${ex.class}</div>
-      <div class="pred-label">Predicted: <span id="pred-${ex.example_file}">--</span></div>
-      <div class="prob">Confidence: <span id="conf-${ex.example_file}">--</span></div>
-      <div class="decision ${decisionClass(false)}" id="decision-${ex.example_file}">--</div>
-      <div class="badge" id="badge-${ex.example_file}">--</div>
+      <img class="example-thumb" src="examples/${ex.example_file}" alt="${ex.class}">
+      <div class="example-label">${ex.class}</div>
+      <div class="example-pred">--</div>
+      <div class="example-prob">--</div>
+      <div class="example-decision ${decisionClass(false)}">--</div>
+      <div class="example-badge">--</div>
     `;
-    if (viewerGridEl) viewerGridEl.appendChild(card);
+    if (examplesEl) examplesEl.appendChild(card);
 
     try {
       const tensor = await loadAndPreprocess("examples/" + ex.example_file);
@@ -182,30 +178,30 @@ async function buildViewer(manifest) {
       if (isAnswered) answered++; else abstained++;
       if (match) matches++; else mismatches++;
 
-      const predSpan = el("pred-" + ex.example_file);
-      const confSpan = el("conf-" + ex.example_file);
-      if (predSpan) predSpan.textContent = pred;
-      if (confSpan) confSpan.textContent = formatPct(conf);
-      const decEl = el("decision-" + ex.example_file);
+      const predEl = card.querySelector(".example-pred");
+      const probEl = card.querySelector(".example-prob");
+      const decEl = card.querySelector(".example-decision");
+      const badgeEl = card.querySelector(".example-badge");
+      if (predEl) predEl.textContent = pred;
+      if (probEl) probEl.textContent = formatPct(conf);
       if (decEl) {
         decEl.textContent = decisionText(pred, conf, isAnswered);
-        decEl.className = "decision " + decisionClass(isAnswered);
+        decEl.className = "example-decision " + decisionClass(isAnswered);
       }
-      const badgeEl = card.querySelector("#badge-" + ex.example_file);
       if (badgeEl) {
         badgeEl.textContent = match ? "MATCH" : "MISMATCH";
-        badgeEl.className = "badge " + (match ? "match" : "mismatch");
+        badgeEl.className = "example-badge " + (match ? "match" : "mismatch");
       }
       if (match) card.classList.add("match");
       else card.classList.add("mismatch");
       if (!isAnswered) card.classList.add("abstained");
     } catch (e) {
       console.error("Error on " + ex.example_file, e);
-      const predSpan = card.querySelector(".pred-" + ex.example_file);
-      if (predSpan) predSpan.textContent = "error";
-      const decEl = card.querySelector("#decision-" + ex.example_file);
+      const predEl = card.querySelector(".example-pred");
+      if (predEl) predEl.textContent = "error";
+      const decEl = card.querySelector(".example-decision");
       if (decEl) decEl.textContent = "error";
-      const badgeEl = card.querySelector("#badge-" + ex.example_file);
+      const badgeEl = card.querySelector(".example-badge");
       if (badgeEl) badgeEl.textContent = "error";
     }
 
@@ -213,16 +209,19 @@ async function buildViewer(manifest) {
   }
 
   if (viewerStatusEl) viewerStatusEl.textContent = "Loaded " + total + " examples.";
-  if (summaryEl) {
-    summaryEl.textContent =
-      "Summary on these " + total + " examples only (demonstration subset, not an accuracy measure): " +
-      matches + " match, " + mismatches + " mismatch, " +
-      answered + " answered, " + abstained + " abstained (threshold " + FROZEN_THRESHOLD + ").";
+  if (examplesEl) {
+    // Re-attach click handlers after all cards are rendered
+    const cards = examplesEl.querySelectorAll(".example-card");
+    cards.forEach((card, i) => {
+      card.addEventListener("click", () => {
+        const ex = manifest.examples[i];
+        if (!ex) return;
+        const imgEl = card.querySelector(".example-thumb");
+        if (!imgEl) return;
+        showResult(ex.example_file, imgEl.src, ex.class);
+      });
+    });
   }
-  let note = "";
-  if (mismatches === 0) note += " No mismatches in this subset. ";
-  if (abstained === 0) note += " No abstentions in this subset. ";
-  if (viewerNoteEl) viewerNoteEl.textContent = note.trim();
 
   // Load exploratory abstention-by-class table (from the committed analysis, not from new evaluation).
   fetch("analysis/abstention_by_class.csv")
@@ -260,47 +259,81 @@ async function buildViewer(manifest) {
     });
 }
 
+// ----- show result for a given example -----
+function showResult(fileName, imgSrc, trueLabel) {
+  const thumb = el("resultThumb");
+  const predEl = el("resultPred");
+  const probEl = el("resultProb");
+  const probFill = el("probFill");
+  const probText = el("probText");
+  const decEl = el("resultDecision");
+  const badgeEl = el("resultBadge");
+  const matchNote = el("resultMatchNote");
+  const resultCard = el("resultCard");
+
+  if (thumb) thumb.src = imgSrc;
+  if (!resultCard) return;
+
+  const dr = window.__debugResults && window.__debugResults[fileName];
+  if (!dr) return;
+
+  const probs = dr.probs;
+  const best = top3(probs)[0];
+  const pred = CLASS_NAMES[best.i];
+  const conf = best.p;
+  const isAnswered = conf >= FROZEN_THRESHOLD;
+  const match = pred === trueLabel;
+
+  if (predEl) predEl.textContent = pred;
+  if (probEl) probEl.textContent = formatPct(conf);
+  if (probFill) probFill.style.width = (conf * 100) + "%";
+  if (probText) probText.textContent = formatPct(conf);
+  if (decEl) {
+    decEl.textContent = decisionText(pred, conf, isAnswered);
+    decEl.className = "example-decision " + decisionClass(isAnswered);
+  }
+  if (badgeEl) {
+    badgeEl.textContent = match ? "MATCH" : "MISMATCH";
+    badgeEl.className = "example-badge " + (match ? "match" : "mismatch");
+  }
+  if (matchNote) {
+    matchNote.textContent = match ? "Prediction matches true label." : "Prediction differs from true label.";
+    matchNote.className = "muted " + (match ? "" : "");
+  }
+
+  resultCard.style.display = "block";
+}
+
 // ----- single upload -----
 function displayPrediction(logits, srcLabel) {
   const probs = softmax(logits);
   const top = top3(probs)[0];
   const best = top[0];
 
-  const tc = el("topClass");
-  const tfc = el("topConf");
+  const tc = el("resultPred");
+  const tfc = el("resultProb");
   if (tc) tc.textContent = CLASS_NAMES[best.i];
   if (tfc) tfc.textContent = formatPct(best.p) + " confidence";
   const answered = best.p >= FROZEN_THRESHOLD;
-  const sd = el("singleDecision");
-  if (sd) {
-    sd.textContent = answered
+  const decEl = el("resultDecision");
+  if (decEl) {
+    decEl.textContent = answered
       ? "Answered &mdash; " + CLASS_NAMES[best.i]
       : "Abstained (route to review) &mdash; max " + formatPct(best.p) + " < " + FROZEN_THRESHOLD;
-    sd.className = "decision-big " + (answered ? "answered-big" : "abstained-big");
+    decEl.className = "example-decision " + (answered ? "example-answered" : "example-abstained");
   }
-  const ri = el("resultImg");
-  if (ri) { ri.src = el("previewImg").src; ri.alt = srcLabel; }
+  const ri = el("resultThumb");
+  const pi = el("previewImg");
+  if (ri && pi) { ri.src = pi.src; }
 
-  const top3El = el("top3");
-  if (top3El) {
-    top3El.innerHTML = "";
-    for (const t of top) {
-      const row = document.createElement("div");
-      row.className = "prob-row";
-      row.innerHTML = "<span>" + CLASS_NAMES[t.i] + "</span><span>" + formatPct(t.p) + "</span>";
-      top3El.appendChild(row);
-      const barWrap = document.createElement("div");
-      barWrap.className = "prob-bar";
-      const fill = document.createElement("div");
-      fill.className = "prob-fill";
-      fill.style.width = (t.p * 100) + "%";
-      barWrap.appendChild(fill);
-      top3El.appendChild(barWrap);
-    }
-  }
+  const probFill = el("probFill");
+  const probText = el("probText");
+  if (probFill) probFill.style.width = (best.p * 100) + "%";
+  if (probText) probText.textContent = formatPct(best.p);
 
-  const sr = el("singleResult");
-  if (sr) sr.style.display = "block";
+  const resultCard = el("resultCard");
+  if (resultCard) resultCard.style.display = "block";
+
   setStatus("Prediction complete for " + srcLabel + ". " + (answered ? "Answered" : "Abstained") + ".", answered ? "ok" : "");
 }
 
@@ -352,8 +385,6 @@ if (fileInput) {
     if (pi) { pi.src = URL.createObjectURL(file); pi.alt = file.name; }
     const rn = el("resizeNotice");
     if (rn) rn.style.display = "none";
-    const sr = el("singleResult");
-    if (sr) sr.style.display = "none";
     setStatus("Uploaded " + file.name + ". Running inference&hellip;");
     const sl = el("singleLoading");
     if (sl) sl.style.display = "flex";
