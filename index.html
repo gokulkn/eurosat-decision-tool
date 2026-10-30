@@ -84,6 +84,7 @@
     <h2>About</h2>
     <p class="muted">Model: ResNet-18 (ImageNet-pretrained), fc replaced for 10 EuroSAT classes. Input: 64&times;64 RGB patch normalized with ImageNet mean/std. Runtime: ONNX via onnxruntime-web (local, no network).</p>
     <div class="fixed-note"><strong>Scope note:</strong> Prediction is for EuroSAT-style 64&times;64 Sentinel-2 RGB patches. Accuracy on other imagery is unknown.</p>
+    <p class="muted" style="margin-top:6px;">The 12 example patches are two per class drawn from the committed EuroSAT test split (splits/test.csv in the source repository).</p>
     <div class="bench">
       <h3 style="font-size:0.95rem;margin-bottom:6px;">Test-set figures (committed reports/TEST_RESULTS.md)</h3>
       <table>
