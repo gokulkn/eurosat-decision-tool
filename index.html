@@ -175,9 +175,10 @@
   <div class="card" id="exploratoryPanel">
     <h2><span class="num">3</span>Exploratory: abstention by class (test split reused)</h2>
     <p class="muted" id="explStatus">Loading exploratory table &hellip;</p>
+    <p class="fixed-note"><strong>Frozen threshold result:</strong> at the frozen 0.50 threshold, the abstention layer did <strong>not</strong> catch confident errors — only 25 of 4,050 cells were abstained, and confident errors remain answered (SeaLake 2, River 17, Forest 3, HerbaceousVegetation 28). The layer catches confident errors only at thresholds above 0.50, which were not the frozen rule.</p>
     <div id="explTable"></div>
     <div class="img-block" id="explImg"></div>
-    <p class="expl-caption">Source: analysis/abstention_pairs.png — error rate among answered cells vs threshold, per class pair (exploratory, test split reused, not a new accuracy measure).</p>
+    <p class="expl-caption">Source: analysis/abstention_pairs.png — error rate among answered cells vs threshold, per class pair (exploratory, test split reused, descriptive only).</p>
   </div>
 </div>
 
