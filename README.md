@@ -31,6 +31,23 @@ A summary line reports the count of matches, mismatches, answered, and abstained
 
 The 12 example patches (two per class across AnnualCrop, Forest, HerbaceousVegetation, Highway, Industrial, Pasture) are copied from the committed EuroSAT test split. Each source file exists in `eurosat-decision/data/eurosat/2750/<class>/` and each `test_index` appears in `eurosat-decision/splits/test.csv`. **All 12 examples are in the test split; none are excluded or "not test split."**
 
+## Bug fix: browser preprocessing matches training
+
+The initial browser version had a preprocessing bug: it wrote RGB values interleaved
+(`tensor[idx++] = R, tensor[idx++] = G, tensor[idx++] = B`) into a tensor shaped
+`[1, 3, 64, 64)` which expects **NCHW** layout — all 4096 R values first, then all 4096 G
+values, then all 4096 B values. This caused the browser to disagree with PyTorch on 10 of 12
+example files (2/12 correct).
+
+The fix writes each channel to its proper NCHW slice:
+- `tensor[pixel_idx] = normalized R`
+- `tensor[4096 + pixel_idx] = normalized G`
+- `tensor[8192 + pixel_idx] = normalized B`
+
+After the fix, the browser reproduces PyTorch exactly on all 12 example files
+(11/12 match the true label; the 1 discrepancy is HerbaceousVegetation→Pasture at 0.67
+confidence, a genuine hard case that PyTorch also gets wrong).
+
 ## How to run locally
 
 From the `eurosat-decision-tool` folder:

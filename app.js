@@ -29,6 +29,12 @@ const CLASS_NAMES = [
 const FROZEN_THRESHOLD = 0.50;
 const MODEL_PATH = "model.onnx";
 
+// Debug hook: stores softmax results keyed by example file, for verification only.
+window.__debugResults = window.__debugResults || {};
+function storeDebugResult(file, probs, pred) {
+  window.__debugResults[file] = { probs: probs.map(Number), pred: pred };
+}
+
 let session = null;
 let modelResolve = null;
 const modelReady = new Promise((resolve) => { modelResolve = resolve; });
@@ -86,16 +92,17 @@ function loadAndPreprocess(fileOrUrl) {
         const tensor = new Float32Array(1 * 3 * 64 * 64);
         const mean = [0.485, 0.456, 0.406];
         const std = [0.229, 0.224, 0.225];
-        let idx = 0;
+        const CHANNEL_STRIDE = 64 * 64; // 4096 pixels per channel (NCHW layout)
         for (let y = 0; y < 64; y++) {
           for (let x = 0; x < 64; x++) {
             const off = (y * 64 + x) * 4;
             const r = data[off] / 255;
             const g = data[off + 1] / 255;
             const b = data[off + 2] / 255;
-            tensor[idx++] = (r - mean[0]) / std[0];
-            tensor[idx++] = (g - mean[1]) / std[1];
-            tensor[idx++] = (b - mean[2]) / std[2];
+            const pixel_idx = y * 64 + x;
+            tensor[pixel_idx] = (r - mean[0]) / std[0];          // channel 0: R
+            tensor[CHANNEL_STRIDE + pixel_idx] = (g - mean[1]) / std[1];   // channel 1: G
+            tensor[2 * CHANNEL_STRIDE + pixel_idx] = (b - mean[2]) / std[2];   // channel 2: B
           }
         }
         resolve(tensor);
@@ -168,6 +175,9 @@ async function buildViewer(manifest) {
       const conf = best.p;
       const isAnswered = conf >= FROZEN_THRESHOLD;
       const match = pred === ex.class;
+
+      // Debug hook
+      try { storeDebugResult(ex.example_file, probs, pred); } catch (e) {}
 
       if (isAnswered) answered++; else abstained++;
       if (match) matches++; else mismatches++;
