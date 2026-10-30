@@ -215,7 +215,7 @@ async function buildViewer(manifest) {
   if (viewerStatusEl) viewerStatusEl.textContent = "Loaded " + total + " examples.";
   if (summaryEl) {
     summaryEl.textContent =
-      "Summary on these " + total + " examples only (not a test-set accuracy): " +
+      "Summary on these " + total + " examples only (demonstration subset, not an accuracy measure): " +
       matches + " match, " + mismatches + " mismatch, " +
       answered + " answered, " + abstained + " abstained (threshold " + FROZEN_THRESHOLD + ").";
   }
@@ -223,6 +223,41 @@ async function buildViewer(manifest) {
   if (mismatches === 0) note += " No mismatches in this subset. ";
   if (abstained === 0) note += " No abstentions in this subset. ";
   if (viewerNoteEl) viewerNoteEl.textContent = note.trim();
+
+  // Load exploratory abstention-by-class table (from the committed analysis, not from new evaluation).
+  fetch("analysis/abstention_by_class.csv")
+    .then((r) => r.text())
+    .then((text) => {
+      const lines = text.trim().split("\n");
+      const header = lines[0].split(",");
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const vals = lines[i].split(",");
+        const obj = {};
+        header.forEach((h, j) => { obj[h] = vals[j]; });
+        rows.push(obj);
+      }
+      const expl = el("explTable");
+      const explStatus = el("explStatus");
+      if (expl) {
+        let html = "<table class=\"expl-table\"><thead><tr>";
+        header.forEach((h) => { html += "<th>" + h + "</th>"; });
+        html += "</tr></thead><tbody>";
+        rows.forEach((row) => {
+          html += "<tr>";
+          header.forEach((h) => { html += "<td>" + row[h] + "</td>"; });
+          html += "</tr>";
+        });
+        html += "</tbody></table>";
+        expl.innerHTML = html;
+      }
+      if (explStatus) explStatus.textContent = "Exploratory table loaded (" + rows.length + " classes).";
+    })
+    .catch((e) => {
+      console.warn("Could not load exploratory table:", e);
+      const explStatus = el("explStatus");
+      if (explStatus) explStatus.textContent = "Exploratory table unavailable.";
+    });
 }
 
 // ----- single upload -----
