@@ -1,0 +1,91 @@
+{
+  "total": 12,
+  "classes_covered": [
+    "AnnualCrop",
+    "AnnualCrop",
+    "Forest",
+    "Forest",
+    "HerbaceousVegetation",
+    "HerbaceousVegetation",
+    "Highway",
+    "Highway",
+    "Industrial",
+    "Industrial",
+    "Pasture",
+    "Pasture"
+  ],
+  "examples": [
+    {
+      "class": "AnnualCrop",
+      "test_index": 1,
+      "source_file": "eurosat\\2750\\AnnualCrop\\AnnualCrop_10.jpg",
+      "example_file": "AnnualCrop_1_AnnualCrop_10.jpg"
+    },
+    {
+      "class": "AnnualCrop",
+      "test_index": 4,
+      "source_file": "eurosat\\2750\\AnnualCrop\\AnnualCrop_1001.jpg",
+      "example_file": "AnnualCrop_4_AnnualCrop_1001.jpg"
+    },
+    {
+      "class": "Forest",
+      "test_index": 3000,
+      "source_file": "eurosat\\2750\\Forest\\Forest_1.jpg",
+      "example_file": "Forest_3000_Forest_1.jpg"
+    },
+    {
+      "class": "Forest",
+      "test_index": 3006,
+      "source_file": "eurosat\\2750\\Forest\\Forest_1003.jpg",
+      "example_file": "Forest_3006_Forest_1003.jpg"
+    },
+    {
+      "class": "HerbaceousVegetation",
+      "test_index": 6027,
+      "source_file": "eurosat\\2750\\HerbaceousVegetation\\HerbaceousVegetation_1022.jpg",
+      "example_file": "HerbaceousVegetation_6027_HerbaceousVegetation_1022.jpg"
+    },
+    {
+      "class": "HerbaceousVegetation",
+      "test_index": 6034,
+      "source_file": "eurosat\\2750\\HerbaceousVegetation\\HerbaceousVegetation_1029.jpg",
+      "example_file": "HerbaceousVegetation_6034_HerbaceousVegetation_1029.jpg"
+    },
+    {
+      "class": "Highway",
+      "test_index": 9002,
+      "source_file": "eurosat\\2750\\Highway\\Highway_100.jpg",
+      "example_file": "Highway_9002_Highway_100.jpg"
+    },
+    {
+      "class": "Highway",
+      "test_index": 9013,
+      "source_file": "eurosat\\2750\\Highway\\Highway_101.jpg",
+      "example_file": "Highway_9013_Highway_101.jpg"
+    },
+    {
+      "class": "Industrial",
+      "test_index": 11512,
+      "source_file": "eurosat\\2750\\Industrial\\Industrial_1009.jpg",
+      "example_file": "Industrial_11512_Industrial_1009.jpg"
+    },
+    {
+      "class": "Industrial",
+      "test_index": 11523,
+      "source_file": "eurosat\\2750\\Industrial\\Industrial_1019.jpg",
+      "example_file": "Industrial_11523_Industrial_1019.jpg"
+    },
+    {
+      "class": "Pasture",
+      "test_index": 14004,
+      "source_file": "eurosat\\2750\\Pasture\\Pasture_1001.jpg",
+      "example_file": "Pasture_14004_Pasture_1001.jpg"
+    },
+    {
+      "class": "Pasture",
+      "test_index": 14005,
+      "source_file": "eurosat\\2750\\Pasture\\Pasture_1002.jpg",
+      "example_file": "Pasture_14005_Pasture_1002.jpg"
+    }
+  ]
+}

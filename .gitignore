@@ -1,0 +1,9 @@
+# Logs and reports (not committed)
+TOOL_LOG.md
+TOOL_REPORT.md
+*.log
+# Node modules
+node_modules/
+# OS
+.DS_Store
+Thumbs.db
